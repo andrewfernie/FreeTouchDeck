@@ -15,12 +15,12 @@
   These are those libraries:
 
       !----------------------------- Library Dependencies --------------------------- !
-      - Adafruit-GFX-Library (version 1.10.0), available through Library Manager
-      - TFT_eSPI (version 2.2.14), available through Library Manager
+      - Adafruit-GFX-Library (version 1.10.0 or above), available through Library Manager
+      - TFT_eSPI (version 2.2.14 or above), available through Library Manager
       - ESP32-BLE-Keyboard (forked) (latest version) download from: https://github.com/DustinWatts/ESP32-BLE-Keyboard
       - ESPAsyncWebserver (latest version) download from: https://github.com/me-no-dev/ESPAsyncWebServer
       - AsyncTCP (latest version) download from: https://github.com/me-no-dev/AsyncTCP
-      - ArduinoJson (version 6.16.1), available through Library Manager
+      - ArduinoJson (version 6.16.1 or above), available through Library Manager
 
       --- If you use Capacitive touch ---
       - Dustin Watts FT6236 Library (version 1.0.1), https://github.com/DustinWatts/FT6236
@@ -56,12 +56,26 @@
 // ------- Uncomment the define below if you want to use a piezo buzzer and specify the pin where the speaker is connected -------
 //#define speakerPin 26
 
-const char *versionnumber = "0.9.7";
+const char *versionnumber = "0.9.10";
 
-    /* Version 0.9.7 Bug fix: Changing colour causes reboot when entering config mode. "Combos" dissapeared and are now back. 
-     *  Move the FreeTouchDeck logo to the "logos" folder so it can be deleted to create more space. 
-     *  Fixed the latching dot to fall within the boundaries of a button when using a 320 * 240 screen. 
-     *  When updating: remember to re-upload the data folder ! !
+    /* Version 0.9.10. 
+     *  
+     *  Version 0.9.9 is the version that was preloaded on the ESP32 TouchDown
+     *  
+     * Fix: PWM Speaker channel is now channel 2.
+     * Fix: Changed location of startup beep to be after config is loaded.
+     * Fix: Stop BLE also in WIFI_AP mode.
+     * Fix: Typos.
+     * Fix: Added Delete key in action.h and configurator.
+     * 
+     * Improved: ESP32 TouchDown compatibility.
+     * 
+     * Added: Speaker config to json files, to the configurator and to the "info" page on the screen. 
+     * Added: "previous" and "next" to the configurator (thanks @JonnyBergdahl) 
+     *  
+     * Important! This version changes json structure and HTML files. So an ESP sketch data upload is nescecarry. The only json
+     * file that changes is the wificonfig.json so if you back up your menu configs, you can use them unaltered in the new version 
+     * (provided you come from 0.9.8).
     */
 
 #include <pgmspace.h> // PROGMEM support header
@@ -220,6 +234,7 @@ struct Wificonfig
   char hostname[64];
   bool sleepenable;
   uint16_t sleeptimer;
+  bool beep;
 };
 
 // Array to hold all the latching statuses
@@ -250,6 +265,7 @@ Menu menu6;
 unsigned long previousMillis = 0;
 unsigned long Interval = 0;
 bool displayinginfo;
+char* jsonfilefail = "";
 
 // Invoke the TFT_eSPI button class and create all the button objects
 TFT_eSPI_Button key[6];
@@ -299,33 +315,10 @@ void setup()
   ledcSetup(0, 5000, 8);
 #ifdef TFT_BL
   ledcAttachPin(TFT_BL, 0);
+#else
+  ledcAttachPin(32, 0);
 #endif
   ledcWrite(0, ledBrightness); // Start @ initial Brightness
-
-  // Setup PWM channel for Piezo speaker
-
-#ifdef speakerPin
-  ledcSetup(1, 500, 8);
-
-  ledcAttachPin(speakerPin, 0);
-  ledcWriteTone(1, 600);
-  delay(150);
-  ledcDetachPin(speakerPin);
-  ledcWrite(1, 0);
-
-  ledcAttachPin(speakerPin, 0);
-  ledcWriteTone(1, 800);
-  delay(150);
-  ledcDetachPin(speakerPin);
-  ledcWrite(1, 0);
-
-  ledcAttachPin(speakerPin, 0);
-  ledcWriteTone(1, 1200);
-  delay(150);
-  ledcDetachPin(speakerPin);
-  ledcWrite(1, 0);
-
-#endif
 
   if (!FILESYSTEM.begin())
   {
@@ -446,14 +439,79 @@ void setup()
   }
 
   // Load the all the configuration
-  loadConfig("colors");
-  loadConfig("homescreen");
-  loadConfig("menu1");
-  loadConfig("menu2");
-  loadConfig("menu3");
-  loadConfig("menu4");
-  loadConfig("menu5");
+  if(!loadConfig("colors")){
+    Serial.println("[WARNING]: colors.json seems to be corrupted!");
+    Serial.println("[WARNING]: To reset to default type 'reset colors'.");
+    jsonfilefail = "colors";
+    pageNum = 10;
+  }
+
+    // Setup PWM channel for Piezo speaker
+
+#ifdef speakerPin
+  ledcSetup(2, 500, 8);
+
+if(wificonfig.beep){
+  ledcAttachPin(speakerPin, 2);
+  ledcWriteTone(2, 600);
+  delay(150);
+  ledcDetachPin(speakerPin);
+  ledcWrite(2, 0);
+
+  ledcAttachPin(speakerPin, 2);
+  ledcWriteTone(2, 800);
+  delay(150);
+  ledcDetachPin(speakerPin);
+  ledcWrite(2, 0);
+
+  ledcAttachPin(speakerPin, 2);
+  ledcWriteTone(2, 1200);
+  delay(150);
+  ledcDetachPin(speakerPin);
+  ledcWrite(2, 0);
+}
+
+#endif
+
+  if(!loadConfig("homescreen")){
+    Serial.println("[WARNING]: homescreen.json seems to be corrupted!");
+    Serial.println("[WARNING]: To reset to default type 'reset homescreen'.");
+    jsonfilefail = "homescreen";
+    pageNum = 10;
+  }
+  if(!loadConfig("menu1")){
+    Serial.println("[WARNING]: menu1.json seems to be corrupted!");
+    Serial.println("[WARNING]: To reset to default type 'reset menu1'.");
+    jsonfilefail = "menu1";
+    pageNum = 10;
+  }
+  if(!loadConfig("menu2")){
+    Serial.println("[WARNING]: menu2.json seems to be corrupted!");
+    Serial.println("[WARNING]: To reset to default type 'reset menu2'.");
+    jsonfilefail = "menu2";
+    pageNum = 10;
+  }
+  if(!loadConfig("menu3")){
+    Serial.println("[WARNING]: menu3.json seems to be corrupted!");
+    Serial.println("[WARNING]: To reset to default type 'reset menu3'.");
+    jsonfilefail = "menu3";
+    pageNum = 10;
+  }
+  if(!loadConfig("menu4")){
+    Serial.println("[WARNING]: menu4.json seems to be corrupted!");
+    Serial.println("[WARNING]: To reset to default type 'reset menu4'.");
+    jsonfilefail = "menu4";
+    pageNum = 10;
+  }
+  if(!loadConfig("menu5")){
+    Serial.println("[WARNING]: menu5.json seems to be corrupted!");
+    Serial.println("[WARNING]: To reset to default type 'reset menu5'.");
+    jsonfilefail = "menu5";
+    pageNum = 10;
+  }
   Serial.println("[INFO]: All configs loaded");
+
+  
 
   strcpy(generallogo.homebutton, "/logos/home.bmp");
   strcpy(generallogo.configurator, "/logos/wifi.bmp");
@@ -551,6 +609,13 @@ void loop(void)
       Serial.println("[WARNING]: Restarting");
       ESP.restart();
     }
+
+    else if (command == "reset")
+    {
+      String file = Serial.readString();
+      Serial.printf("[INFO]: Resetting %s.json now\n", file.c_str());
+      resetconfig(file);
+    }
   }
   
   if (pageNum == 7)
@@ -601,6 +666,84 @@ void loop(void)
       drawKeypad();
     }
   }
+  else if (pageNum == 9)
+  {
+
+    // We were unable to connect to WiFi. Waiting for touch to get back to the settings menu.
+    uint16_t t_x = 0, t_y = 0;
+
+    //At the beginning of a new loop, make sure we do not use last loop's touch.
+    boolean pressed = false;
+
+#ifdef USECAPTOUCH
+    if (ts.touched())
+    {
+
+      // Retrieve a point
+      TS_Point p = ts.getPoint();
+
+      //Flip things around so it matches our screen rotation
+      p.x = map(p.x, 0, 320, 320, 0);
+      t_y = p.x;
+      t_x = p.y;
+
+      pressed = true;
+    }
+
+#else
+
+    pressed = tft.getTouch(&t_x, &t_y);
+
+#endif
+
+    if (pressed)
+    {     
+      // Return to Settings page
+      displayinginfo = false;
+      pageNum = 6;
+      tft.fillScreen(generalconfig.backgroundColour);
+      drawKeypad();
+    }
+  }
+  else if (pageNum == 10)
+  {
+
+    // A JSON file failed to load. We are drawing an error message. And waiting for a touch.
+    uint16_t t_x = 0, t_y = 0;
+
+    //At the beginning of a new loop, make sure we do not use last loop's touch.
+    boolean pressed = false;
+
+#ifdef USECAPTOUCH
+    if (ts.touched())
+    {
+
+      // Retrieve a point
+      TS_Point p = ts.getPoint();
+
+      //Flip things around so it matches our screen rotation
+      p.x = map(p.x, 0, 320, 320, 0);
+      t_y = p.x;
+      t_x = p.y;
+
+      pressed = true;
+    }
+
+#else
+
+    pressed = tft.getTouch(&t_x, &t_y);
+
+#endif
+
+    if (pressed)
+    {     
+      // Load home screen
+      displayinginfo = false;
+      pageNum = 0;
+      tft.fillScreen(generalconfig.backgroundColour);
+      drawKeypad();
+    }
+  }
   else
   {
 
@@ -616,23 +759,25 @@ void loop(void)
         tft.fillScreen(TFT_BLACK);
         Serial.println("[INFO]: Going to sleep.");
 #ifdef speakerPin
-        ledcAttachPin(speakerPin, 0);
-        ledcWriteTone(1, 1200);
+        if(wificonfig.beep){
+        ledcAttachPin(speakerPin, 2);
+        ledcWriteTone(2, 1200);
         delay(150);
         ledcDetachPin(speakerPin);
-        ledcWrite(1, 0);
+        ledcWrite(2, 0);
 
-        ledcAttachPin(speakerPin, 0);
-        ledcWriteTone(1, 800);
+        ledcAttachPin(speakerPin, 2);
+        ledcWriteTone(2, 800);
         delay(150);
         ledcDetachPin(speakerPin);
-        ledcWrite(1, 0);
+        ledcWrite(2, 0);
 
-        ledcAttachPin(speakerPin, 0);
-        ledcWriteTone(1, 600);
+        ledcAttachPin(speakerPin, 2);
+        ledcWriteTone(2, 600);
         delay(150);
         ledcDetachPin(speakerPin);
-        ledcWrite(1, 0);
+        ledcWrite(2, 0);
+        }
 #endif
 
         esp_sleep_enable_ext0_wakeup(touchInterruptPin, 0);
@@ -677,14 +822,6 @@ void loop(void)
 
         // After receiving a valid touch reset the sleep timer
         previousMillis = millis();
-        // Beep
-        #ifdef speakerPin
-          ledcAttachPin(speakerPin, 0);
-          ledcWriteTone(1, 600);
-          delay(50);
-          ledcDetachPin(speakerPin);
-          ledcWrite(1, 0);
-        #endif 
       }
       else
       {
@@ -819,6 +956,18 @@ void loop(void)
 
       if (key[b].justPressed())
       {
+        
+        // Beep
+        #ifdef speakerPin
+        if(wificonfig.beep){
+          ledcAttachPin(speakerPin, 2);
+          ledcWriteTone(2, 600);
+          delay(50);
+          ledcDetachPin(speakerPin);
+          ledcWrite(2, 0);
+        }
+        #endif 
+        
         int col, row;
 
         if (b == 0)
